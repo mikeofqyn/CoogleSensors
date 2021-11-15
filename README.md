@@ -1,4 +1,3 @@
-<<<<<<< HEAD
 # CoogleIOT wrapper library to manage sensors and actuators
 
 The library **CoogleIOT** (https://github.com/ThisSmartHouse/CoogleIOT) simplifies the 
@@ -68,10 +67,3 @@ __In `PubSubClient.h`__
  #define MQTT_VERSION MQTT_VERSION_3_1_1
  #endif
 ```
-
- 
- # CoogleSensors
-=======
-# CoogleSensors
-A CoogleIOT wrapper class to simplify integrating sensors with IoT frameworks
->>>>>>> 7bfe20da0caed73fca2cb846558c29d30de4dc7c
