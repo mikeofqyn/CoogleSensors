@@ -11,7 +11,13 @@ CoogleSensors::CoogleSensors() : CoogleIOT(LED_BUILTIN)
 {
 
 }
-CoogleSensors::~CoogleSensors() 
+
+CoogleSensors::CoogleSensors(Print& the_tty) : CoogleIOT(LED_BUILTIN, the_tty) 
+{
+
+}
+
+CoogleSensors::~CoogleSensors()
 {
     CoogleThat = NULL;  // Used by MQTT callback function
 }
@@ -30,14 +36,14 @@ bool CoogleSensors::begin()
     //
     // Initialize CoogleIOT
     // 
-    Serial.begin(SERIAL_BAUD);
-    Serial.println("CoogleSensors starting");
+    if (&Tty == &Serial) Serial.begin(SERIAL_BAUD);
+    Tty.println("CoogleSensors starting");
 
     unsigned long rseed = micros();
 
     this->enableSerial(SERIAL_BAUD);
 
-    Serial.println("Initializing CoogleIOT");
+    Tty.println("Initializing CoogleIOT");
 
     this->initialize();
 
@@ -54,12 +60,13 @@ bool CoogleSensors::begin()
     }
     else {
         // Wait up to 10 min. for the user to reconfigure via the buil in portal
-        this->logPrintf(ERROR, "Could not connect to SSID %s", this->getRemoteAPName().c_str());
-        this->flashSOS();
+        this->logPrintf(ERROR, "Could not connect to SSID %s. Please reconfigure", this->getRemoteAPName().c_str());
         unsigned int m = millis();
         while ((millis() - m) < (10 * 60 * 1000)) {
             this->loopWebServer();
+            yield();
         }
+        ESP.restart();
     }
     // Here the WiFi might be connected or not 
 
@@ -155,7 +162,7 @@ int CoogleSensors::publish_c_str(char* topic, char* message, bool retain) {
         return COOGS_RETCODE_MQTT_NOT_READY;
     }
 
-    // Serial.print(">");Serial.println(message);
+    // Tty.print(">");Tty.println(message);
 
     // Publish
     if (!mqtt->publish(topic, message, retain)) {

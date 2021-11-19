@@ -86,6 +86,7 @@ class CoogleSensors:public CoogleIOT
 {
     public:
       CoogleSensors();
+      CoogleSensors(Print& the_tty);
       ~CoogleSensors();
       bool begin();
       void loop();
@@ -106,6 +107,7 @@ class CoogleSensors:public CoogleIOT
       int publish_stats();
 
     private:
+
       PubSubClient  *mqtt = NULL;
 
       String CLIENT_ID;
