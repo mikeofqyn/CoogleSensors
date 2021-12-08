@@ -4,6 +4,7 @@
 
 #include <time.h>
 #include <CoogleIOT.h>
+#include "CS_static_IPs.h"  // allow for static IP to be configured at compile time See constructor
 
 //
 // Configuration
@@ -14,6 +15,8 @@
 
 #define COOGS_MQTT_KEEPALVE 20
 #define COOGS_MQTT_SOCKET_TIMEOUT 10
+
+#define COOGS_MAX_MQTT_OFLINE_SECS 180  // restart if MQTT not responding for 3 min. 
 
 const String COGS_MESSAGE_VERSION = "3";
 
@@ -72,7 +75,7 @@ const int COOGS_RETCODE_PUBLISH_ERROR   = -9900;
 // Apart from the excellent book, much help was provided by the online assistant:
 //
 // https://arduinojson.org/v5/assistant/
-
+// 
 //
 // Message buffer for ArduinoJSON
 //
@@ -114,7 +117,10 @@ class CoogleSensors:public CoogleIOT
       String CLIENT_ADDRESS = "";
 
       bool is_ONLINE = false;
-      
+      unsigned long offline_start_time = 0;  // MQTT not responding since
+
+      void check_for_static_IP(); // Called in constructors
+
       //
       // Stats
       //

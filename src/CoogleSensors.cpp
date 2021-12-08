@@ -1,6 +1,7 @@
 #include "CoogleSensors.h"
 
 
+
 //
 // Used by mqttCallbackHandler to access the CoogleSensor object (yeah, dirty), set upon initialization
 //
@@ -9,12 +10,10 @@ static CoogleSensors* CoogleThat = NULL;
 
 CoogleSensors::CoogleSensors() : CoogleIOT(LED_BUILTIN)
 {
-
 }
 
 CoogleSensors::CoogleSensors(Print& the_tty) : CoogleIOT(LED_BUILTIN, the_tty) 
 {
-
 }
 
 CoogleSensors::~CoogleSensors()
@@ -22,8 +21,27 @@ CoogleSensors::~CoogleSensors()
     CoogleThat = NULL;  // Used by MQTT callback function
 }
 
-bool CoogleSensors::is_online() {
+bool CoogleSensors::is_online() 
+{
     return this->mqttActive();
+}
+
+void  CoogleSensors::check_for_static_IP() 
+{
+    csStaticConfigEntry* cfg = cs_GetStaticConfig();
+    if (cfg) {
+        this->logPrintf(WARNING, "IP configuration hardwired for this device (MAC %s)",
+            cfg->mac_addr);
+        this->logPrintf(WARNING, "IP:%s GW:%s, Netmask:%s, DNS:%s/%s", 
+            cfg->address.toString().c_str(),
+            cfg->gateway.toString().c_str(),
+            cfg->subnet.toString().c_str(),
+            cfg->dns1.toString().c_str(),
+            cfg->dns2.toString().c_str() );
+        this->setStaticAddress(cfg->address, cfg->gateway, cfg->subnet, cfg->dns1, cfg->dns2);
+    } else {
+        this->info("No static address configured. Using DHCP");
+    }
 }
 
 bool CoogleSensors::begin()
@@ -32,24 +50,33 @@ bool CoogleSensors::begin()
     CoogleThat = this;  // Used by MQTT callback function
   
     is_ONLINE = false;
+    offline_start_time = millis();
     
     //
     // Initialize CoogleIOT
     // 
     if (&Tty == &Serial) Serial.begin(SERIAL_BAUD);
-    Tty.println("CoogleSensors starting");
+    Tty.println("\n\n\n*CoogleSensors starting*\n\n");
 
     unsigned long rseed = micros();
 
     this->enableSerial(SERIAL_BAUD);
 
-    Tty.println("Initializing CoogleIOT");
+    check_for_static_IP();  // Check if this MAC address has an static network configuration
+
+    Tty.println("\nInitializing CoogleIOT\n");
 
     this->initialize();
 
     rseed += micros();
 
-    this->logPrintf(INFO, "CoogleIOT Initialized. Local AP %s @ %s", this->getAPName().c_str(), WiFi.softAPIP().toString().c_str());
+    this->logPrintf(INFO, "CoogleIOT Initialized. Local AP %s @ %s. Loc/Room: %s/%s, MAC: %s", 
+        this->getAPName().c_str(), 
+        WiFi.softAPIP().toString().c_str(),
+        this->getMQTTAppSpecific1(),
+        this->getMQTTAppSpecific2(),
+        WiFi.macAddress().c_str()
+        );
 
     // 
     // WiFi OK?
@@ -59,14 +86,16 @@ bool CoogleSensors::begin()
         this->logPrintf(INFO, "Connected to remote AP %s @ %s", this->getRemoteAPName().c_str(), CLIENT_ADDRESS.c_str());
     }
     else {
-        // Wait up to 10 min. for the user to reconfigure via the buil in portal
-        this->logPrintf(ERROR, "Could not connect to SSID %s. Please reconfigure", this->getRemoteAPName().c_str());
+        // Wait up to 10 min. for the user to reconfigure via the built in portal
+        this->logPrintf(ERROR, "Could not connect to SSID %s. Please reconfigure and reset", this->getRemoteAPName().c_str());
         unsigned int m = millis();
         while ((millis() - m) < (10 * 60 * 1000)) {
             this->loopWebServer();
             yield();
         }
-        ESP.restart();
+        ESP.eraseConfig();
+        yield();
+        this->restartDevice();
     }
     // Here the WiFi might be connected or not 
 
@@ -122,7 +151,15 @@ bool CoogleSensors::begin()
         unsigned int n = millis();
         while ((millis() - n) < (10 * 60 * 1000)) {
             this->loopWebServer();
+            yield();
         }
+        /** Begin kludge to fix DHCP issues with some routers on unattended reset */
+        WiFi.config(0U, 0U, 0U);
+        delay(1000);
+        WiFi.disconnect(true);
+        delay(1000);
+        /* End kludge */
+        this->restartDevice();
     }
     return is_ONLINE;
 }
@@ -138,15 +175,27 @@ void  CoogleSensors::loop() {
   CoogleIOT::loop();   
 
   //
+  // Check if MQTT is available, restart if not
+  // 
+  if (!this->is_online()) {
+      is_ONLINE = false;
+  } 
+  
+  if (!is_ONLINE) {
+    if ((millis() - offline_start_time) > (COOGS_MAX_MQTT_OFLINE_SECS * 1000UL)) {
+      this->logPrintf(ERROR, "MQTT offline for more than %d seconds. Restarting", COOGS_MAX_MQTT_OFLINE_SECS);
+      delay(100);
+      this->restartDevice();
+    }
+  }
+
+
+  //
   // Status heartbeat
   //
   if ((millis()-last_status_millis) > COOGS_STATUS_INTERVAL) {
-    if (is_ONLINE) {
-      this->publish_heartbeat();
-    } else {
-      /*DBG*/ // iot->info("Offline. Not Publishing");
-    }
-    last_status_millis = millis();
+      this->publish_heartbeat(); // Try to pblish
+      last_status_millis = millis();
   }    
 }
 
@@ -157,6 +206,7 @@ void  CoogleSensors::loop() {
 int CoogleSensors::publish_c_str(char* topic, char* message, bool retain) {
     // MQTT Available
     if (!this->mqttActive()) {
+        is_ONLINE = false;
         publish_errors++;
         /*DBG*/ this->info("Can't publish C string, MQTT not active");
         return COOGS_RETCODE_MQTT_NOT_READY;
@@ -166,10 +216,12 @@ int CoogleSensors::publish_c_str(char* topic, char* message, bool retain) {
 
     // Publish
     if (!mqtt->publish(topic, message, retain)) {
+        is_ONLINE = false;
         /*DBG*/ this->info("Can't publish C string, publish error");
         publish_errors++;
         return COOGS_RETCODE_PUBLISH_ERROR;
     }
+    is_ONLINE = true;
     return COOGS_RETCODE_OK;
 }
 
@@ -221,6 +273,7 @@ void CoogleSensors::JSON_header(JsonObject& obj) {
     obj["msg_version"] = COGS_MESSAGE_VERSION;
     String n1 = this->getMQTTSpecific1Name();
     String n2 = this->getMQTTSpecific2Name();
+    obj["MAC"] = WiFi.macAddress();
     obj["sensor_id"] = CLIENT_ID;
     obj["address"] = CLIENT_ADDRESS;
     if (n1 != "")
