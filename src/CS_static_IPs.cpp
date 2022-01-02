@@ -10,7 +10,8 @@ static csStaticConfigEntry CS_STATIC_CONFIG[] =  {
     CS_MKENTRY("BC:FF:4D:2A:90:42",  6),
     CS_MKENTRY("BC:FF:4D:2A:68:03",  7),
     CS_MKENTRY("BC:FF:4D:2B:7A:06",  8),   
-    CS_MKENTRY("44:17:93:0D:B6:C5",  9)
+    CS_MKENTRY("44:17:93:0D:B6:C5",  9),
+    CS_MKENTRY("EC:FA:BC:C5:11:D6", 10)    // ESP-12 HUB
 };
 
 const unsigned int CS_NUM_ENTRIES = sizeof(CS_STATIC_CONFIG)/sizeof(csStaticConfigEntry);
